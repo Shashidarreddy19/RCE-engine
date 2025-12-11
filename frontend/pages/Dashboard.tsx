@@ -19,6 +19,7 @@ import { useAuthStore } from '../store/authStore';
 import { useThemeStore } from '../store/themeStore';
 import { useEditorStore } from '../store/editorStore';
 import { Toast } from '../components/Toast';
+import { API_URL } from '../src/config';
 
 type Language = 'python' | 'java' | 'cpp' | 'javascript' | 'c' | 'go';
 
@@ -78,7 +79,7 @@ export function Dashboard() {
   const loadSnippets = async () => {
     try {
       const token = localStorage.getItem('token');
-      const { data } = await axios.get('http://localhost:5000/api/snippets', {
+      const { data } = await axios.get(`${API_URL}/api/snippets`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setSnippets(data);
@@ -114,7 +115,7 @@ export function Dashboard() {
 
     try {
       const token = localStorage.getItem('token');
-      await axios.delete(`http://localhost:5000/api/snippets/${_id}`, {
+      await axios.delete(`${API_URL}/api/snippets/${_id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setSnippets(snippets.filter((s) => s._id !== _id));

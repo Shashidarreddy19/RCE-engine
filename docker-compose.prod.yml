@@ -1,0 +1,68 @@
+services:
+  # Frontend Service (Vite -> Nginx)
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=${VITE_API_URL}
+    ports:
+      - "80:80"
+    restart: always
+
+  # Backend API Service
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - MONGO_URI=mongodb://mongo:27017/rce_db
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      # Add other env vars here (JWT_SECRET, etc)
+    depends_on:
+      - redis
+      - mongo
+    restart: always
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # Worker Service (Code Execution Engine)
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.multilang # Uses the heavy image with compilers
+    command: node src/worker.js
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock # Required for sibling containers (dind alternative)
+      - ./temp:/app/temp # Map temp folder for code files
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      # Add other env vars needed by worker
+    depends_on:
+      - redis
+      - mongo
+    restart: always
+
+  # Redis Service
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    restart: always
+
+  # MongoDB Service (Self-contained)
+  mongo:
+    image: mongo:6.0
+    ports:
+      - "27017:27017" # Optional: expose if you want to connect efficiently from host
+    volumes:
+      - mongo_data:/data/db
+    restart: always
+
+volumes:
+  mongo_data:

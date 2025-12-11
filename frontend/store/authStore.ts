@@ -19,7 +19,9 @@ interface AuthState {
   initialize: () => Promise<void>;
 }
 
-const API_URL = 'http://localhost:5000/api/auth';
+import { API_URL } from '../src/config';
+
+const AUTH_URL = `${API_URL}/api/auth`;
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
@@ -29,7 +31,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   signIn: async (email: string, password: string) => {
     try {
-      const response = await axios.post(`${API_URL}/login`, { email, password });
+      const response = await axios.post(`${AUTH_URL}/login`, { email, password });
       const user = response.data;
       localStorage.setItem('token', user.token);
       set({ user });
@@ -41,7 +43,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   signUp: async (email: string, password: string, name: string) => {
     try {
-      const response = await axios.post(`${API_URL}/signup`, { email, password, name });
+      const response = await axios.post(`${AUTH_URL}/signup`, { email, password, name });
       const user = response.data;
       localStorage.setItem('token', user.token);
       set({ user });
@@ -62,7 +64,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
     if (token) {
       try {
-        const response = await axios.get(`${API_URL}/me`, {
+        const response = await axios.get(`${AUTH_URL}/me`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         set({ user: response.data });

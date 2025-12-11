@@ -19,6 +19,7 @@ import { useEditorStore, Language } from '../store/editorStore';
 import { useAuthStore } from '../store/authStore';
 import { useThemeStore } from '../store/themeStore';
 import { Toast } from '../components/Toast';
+import { API_URL } from '../src/config';
 
 const languageOptions: { value: Language; label: string; extension: string }[] = [
   { value: 'python', label: 'Python', extension: 'py' },
@@ -74,7 +75,7 @@ export function EditorPage() {
 
   // Socket Connection
   useEffect(() => {
-    socketRef.current = io('http://localhost:5000');
+    socketRef.current = io(API_URL);
 
     socketRef.current.on('connect', () => {
       console.log('Connected to execution server');
@@ -206,7 +207,7 @@ export function EditorPage() {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
-      const { data } = await axios.get(`http://localhost:5000/api/snippets/${snippetId}`, {
+      const { data } = await axios.get(`${API_URL}/api/snippets/${snippetId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setTitle(data.title);
@@ -231,12 +232,12 @@ export function EditorPage() {
       const token = localStorage.getItem('token');
       const snippetData = { title, description, code, language };
       if (currentSnippetId) {
-        await axios.put(`http://localhost:5000/api/snippets/${currentSnippetId}`, snippetData, {
+        await axios.put(`${API_URL}/api/snippets/${currentSnippetId}`, snippetData, {
           headers: { Authorization: `Bearer ${token}` },
         });
         setToast({ message: 'Snippet updated successfully', type: 'success' });
       } else {
-        const { data } = await axios.post('http://localhost:5000/api/snippets', snippetData, {
+        const { data } = await axios.post(`${API_URL}/api/snippets`, snippetData, {
           headers: { Authorization: `Bearer ${token}` },
         });
         setCurrentSnippetId(data._id);
