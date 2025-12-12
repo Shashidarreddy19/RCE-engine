@@ -1,5 +1,5 @@
 const express = require('express');
-const { v4: uuidv4 } = require('uuid');
+const uuidv4 = (...args) => import('uuid').then(mod => mod.v4(...args));
 const rateLimit = require('express-rate-limit');
 const Submission = require('../models/Submission');
 const { jobQueue } = require('../queue');
@@ -20,7 +20,7 @@ router.post('/execute', submissionLimiter, async (req, res) => {
         return res.status(400).json({ message: 'Code and language are required' });
     }
 
-    const jobId = uuidv4();
+    const jobId = await uuidv4();
 
     try {
         // Create Submission Record
