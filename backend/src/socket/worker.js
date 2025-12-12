@@ -4,8 +4,8 @@ const path = require('path');
 const fs = require('fs');
 const { exec } = require('child_process');
 const dotenv = require('dotenv');
-const Submission = require('./models/Submission');
-const connectDB = require('./db');
+const Submission = require('../models/Submission');
+const connectDB = require('../db');
 
 dotenv.config();
 
