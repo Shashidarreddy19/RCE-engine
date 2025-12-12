@@ -1,0 +1,19 @@
+backend:
+  build:
+    context: ./backend
+    dockerfile: Dockerfile
+  container_name: rce-engine_backend_1
+  restart: always
+  ports:
+    - "5000:5000"
+  environment:
+    MONGO_URI: mongodb://mongo:27017/code-compiler
+    JWT_SECRET: mysupersecretkey123
+    REDIS_HOST: redis
+    REDIS_PORT: 6379
+    NODE_ENV: production
+  depends_on:
+    - mongo
+    - redis
+  volumes:
+    - ./backend/src/socket/temp:/app/temp
