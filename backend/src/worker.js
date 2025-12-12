@@ -40,6 +40,8 @@ const executeDocker = (language, jobDir, filename, input) => {
         const inputFile = '/app/input.txt';
         const inputRedirect = input ? ` < ${inputFile}` : '';
 
+        console.log(`[Worker] Preparing to run ${language} for job in ${jobDir}`);
+
         let extraArgs = [];
 
         switch (language) {
@@ -53,7 +55,7 @@ const executeDocker = (language, jobDir, filename, input) => {
                 break;
             case 'cpp':
                 dockerImage = 'gcc:latest';
-                // Compile and run
+                // Compile and run (stdbuf -o0 for immediate output if needed, though mostly batch here)
                 cmd = `sh -c "g++ /app/${filename} -o /app/output && /app/output${inputRedirect}"`;
                 break;
             case 'c':
@@ -63,8 +65,9 @@ const executeDocker = (language, jobDir, filename, input) => {
             case 'java':
                 // Using eclipse-temurin as openjdk:17-alpine is deprecated/problematic
                 dockerImage = 'eclipse-temurin:17-jdk-alpine';
-                // Java matches class Main
-                cmd = `sh -c "javac /app/Main.java && java -cp /app Main${inputRedirect}"`;
+                // Java matches class Main or detected filename
+                const className = filename.replace('.java', '');
+                cmd = `sh -c "javac /app/${filename} && java -cp /app ${className}${inputRedirect}"`;
                 break;
             case 'go':
                 dockerImage = 'golang:alpine';
@@ -93,34 +96,56 @@ const executeDocker = (language, jobDir, filename, input) => {
             '-v', `"${mountPath}:/app"`,
             dockerImage,
             cmd
-        ].join(' ');
+        ];
 
-        console.log(`Executing: docker ${dockerArgs}`);
+        console.log(`Executing: docker ${dockerArgs.join(' ')}`);
 
-        // We use exec to run the docker command on the host
-        const child = exec(`docker ${dockerArgs}`, { timeout: TIMEOUT }, (error, stdout, stderr) => {
-            if (error) {
-                // Check for timeout
-                if (error.signal === 'SIGTERM' || error.killed) {
-                    return resolve({
-                        output: '',
-                        error: 'Execution Timed Out (Limit: 15s)',
-                        status: 'timeout'
-                    });
-                }
-                // Other errors (like compilation error in container, it typically goes to stderr but exit code is non-zero)
-                // If the container ran but code failed, stderr should have it. 
-                // If docker command itself failed, error.message has it.
+        // Use spawn instead of exec to handle large output streams + timeouts robustly
+        const { spawn } = require('child_process');
+        const child = spawn('docker', dockerArgs);
+
+        let stdout = '';
+        let stderr = '';
+        let timedOut = false;
+
+        const timer = setTimeout(() => {
+            timedOut = true;
+            try { child.kill('SIGKILL'); } catch (e) { }
+            console.log('Worker execution timed out');
+        }, TIMEOUT);
+
+        if (child.stdout) {
+            child.stdout.on('data', (d) => {
+                const chunk = d.toString();
+                if (stdout.length < MAX_OUTPUT) stdout += chunk;
+            });
+        }
+        if (child.stderr) {
+            child.stderr.on('data', (d) => {
+                const chunk = d.toString();
+                if (stderr.length < MAX_OUTPUT) stderr += chunk;
+            });
+        }
+
+        child.on('error', (err) => {
+            clearTimeout(timer);
+            reject(err);
+        });
+
+        child.on('close', (code, signal) => {
+            clearTimeout(timer);
+            if (timedOut) {
                 return resolve({
                     output: stdout.slice(0, MAX_OUTPUT),
-                    error: (stderr || error.message).slice(0, MAX_OUTPUT),
-                    status: 'error'
+                    error: 'Execution Timed Out (Limit: 15s)\n' + stderr.slice(0, 1000),
+                    status: 'timeout'
                 });
             }
+
             resolve({
                 output: stdout.slice(0, MAX_OUTPUT),
                 error: stderr.slice(0, MAX_OUTPUT),
-                status: 'completed'
+                status: (code === 0) ? 'completed' : 'error' // Non-zero exit is usually error
             });
         });
     });
@@ -152,16 +177,37 @@ const worker = new Worker('job-queue', async (job) => {
             case 'javascript': filename = 'main.js'; break;
             case 'cpp': filename = 'main.cpp'; break;
             case 'c': filename = 'main.c'; break;
-            case 'java': filename = 'Main.java'; break;
+            case 'java': {
+                const match = code.match(/public\s+class\s+([A-Za-z_][A-Za-z0-9_]*)/);
+                const className = match ? match[1] : 'Main';
+                filename = `${className}.java`;
+                break;
+            }
             case 'go': filename = 'main.go'; break;
             default: filename = 'file.txt';
         }
 
-        fs.writeFileSync(path.join(jobDir, filename), code);
+        // Helper for safe syncing
+        const safeWriteFileSync = (filePath, content) => {
+            let fd;
+            try {
+                fd = fs.openSync(filePath, 'w');
+                fs.writeSync(fd, content);
+                try {
+                    fs.fsyncSync(fd);
+                } catch (fsyncErr) {
+                    console.warn('FS sync error (non-fatal):', fsyncErr && fsyncErr.message);
+                }
+            } finally {
+                if (fd !== undefined) try { fs.closeSync(fd); } catch (e) { }
+            }
+        };
+
+        safeWriteFileSync(path.join(jobDir, filename), code);
 
         // Handle Input
         if (input) {
-            fs.writeFileSync(path.join(jobDir, 'input.txt'), input);
+            safeWriteFileSync(path.join(jobDir, 'input.txt'), input);
         }
 
         const startTime = Date.now();

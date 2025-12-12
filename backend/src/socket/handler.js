@@ -1,237 +1,243 @@
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const { promisify } = require('util');
+const mkdtemp = promisify(fs.mkdtemp);
+const writeFile = promisify(fs.writeFile);
+const rm = promisify(fs.rm || fs.rmdir);
+const os = require('os');
+const crypto = require('crypto');
 
-// Ensure temp directory exists
-const tempDir = path.join(__dirname, '../../temp');
-if (!fs.existsSync(tempDir)) {
-    fs.mkdirSync(tempDir, { recursive: true });
+// Helpers
+function makeId() {
+    return Date.now().toString(36) + '-' + crypto.randomBytes(6).toString('hex');
 }
 
+async function createTempRunDir() {
+    const tempBasePath = path.join(__dirname, '../../temp');
+    if (!fs.existsSync(tempBasePath)) {
+        fs.mkdirSync(tempBasePath, { recursive: true });
+    }
+    const base = path.join(tempBasePath, 'rce-');
+    const dir = await mkdtemp(base);
+    return dir;
+}
 
+function languageToFilename(language, classNameFallback = 'Main') {
+    switch ((language || '').toLowerCase()) {
+        case 'c': return 'main.c';
+        case 'cpp':
+        case 'c++': return 'main.cpp';
+        case 'java': return `${classNameFallback}.java`;
+        case 'python': return 'main.py';
+        case 'go': return 'main.go';
+        case 'nodejs':
+        case 'node':
+        case 'javascript': return 'main.js';
+        default: return 'main.txt';
+    }
+}
 
-const cleanWorkspace = () => {
-    const files = ["main.py", "Main.java", "main.cpp", "main.c", "main.go", "main.js", "app.out", "a.out", "output", "Main.class"];
-    files.forEach(f => {
-        const filePath = path.join(path.join(__dirname, '../../temp/active_run'), f);
-        if (fs.existsSync(filePath)) {
-            try { fs.unlinkSync(filePath); } catch (err) { }
+function runCommand(cmd, args, opts = {}, timeoutMs = 15000) {
+    return new Promise((resolve, reject) => {
+        const proc = spawn(cmd, args, opts);
+        let stdout = '';
+        let stderr = '';
+        let timedOut = false;
+
+        const timer = setTimeout(() => {
+            timedOut = true;
+            try { proc.kill('SIGKILL'); } catch (e) { }
+        }, timeoutMs);
+
+        if (proc.stdout) {
+            proc.stdout.on('data', d => {
+                const chunk = d.toString();
+                stdout += chunk;
+                if (opts.onOutput) opts.onOutput(chunk);
+            });
         }
+        if (proc.stderr) {
+            proc.stderr.on('data', d => {
+                const chunk = d.toString();
+                stderr += chunk;
+                if (opts.onOutput) opts.onOutput(chunk);
+            });
+        }
+
+        proc.on('error', err => {
+            clearTimeout(timer);
+            reject(err);
+        });
+
+        proc.on('close', (code, signal) => {
+            clearTimeout(timer);
+            if (timedOut) return reject(new Error('Execution Timeout'));
+            resolve({ code, signal, stdout, stderr });
+        });
+
+        // Return process so we can kill it externally if needed
+        resolve.proc = proc;
     });
-};
+}
 
 module.exports = (socket) => {
-    let child = null;
-    let jobDir = null; // Will point to active_run
-    let inactivityTimer = null;
-    const INACTIVITY_LIMIT = 100000; // 100s of NO activity → kill
-
-    function resetTimer() {
-        if (inactivityTimer) clearTimeout(inactivityTimer);
-        inactivityTimer = setTimeout(() => {
-            if (child) {
-                try { child.kill(); } catch (e) { }
-                socket.emit('output', '\n[Execution Timeout]');
-            }
-        }, INACTIVITY_LIMIT);
-    }
+    let activeChild = null; // Track active process for this socket
+    let activeRunDir = null;
 
     socket.on("run", async ({ code, language }) => {
-        // 🔥 KILL PREVIOUS PROCESS IF RUNNING
-        if (child) {
-            try {
-                child.stdout.removeAllListeners();
-                child.stderr.removeAllListeners();
-                child.removeAllListeners();
-                child.kill();
-            } catch (e) { }
-            child = null;
+        // Kill previous process if any
+        if (activeChild) {
+            try { activeChild.kill('SIGKILL'); } catch (e) { }
+            activeChild = null;
+        }
+        // Cleanup previous run dir if any (though we usually clean up after run)
+        if (activeRunDir && fs.existsSync(activeRunDir)) {
+            try { await rm(activeRunDir, { recursive: true, force: true }); } catch (e) { }
+            activeRunDir = null;
         }
 
-        cleanWorkspace();   // 🔥 resets environment before each execution
-
-        // Set stable job directory
-        jobDir = path.join(tempDir, 'active_run');
-        if (!fs.existsSync(jobDir)) {
-            fs.mkdirSync(jobDir, { recursive: true });
-        }
-
-
+        let runDir;
         try {
-            let filename;
-            let runCmd = '/bin/bash';
-            let runArgs = [];
-            let dockerImage;
-            let envArgs = [];
+            runDir = await createTempRunDir();
+            activeRunDir = runDir;
 
-            switch (language) {
-                case 'python': {
-                    filename = 'main.py';
-                    dockerImage = "coderunner-multilang";
-                    runArgs = ['-c', `python3 -I -u /app/${filename}`];
-                    break;
-                }
-
-                case "javascript":
-                case "node":
-                case "Node.js": {
-                    filename = "main.js";
-                    dockerImage = "coderunner-multilang";
-                    runArgs = ["-c", `node /app/${filename}`];
-                    break;
-                }
-
-                case 'go': {
-                    filename = 'main.go';
-                    dockerImage = "coderunner-multilang";
-                    runArgs = [
-                        '-c',
-                        `cp /app/${filename} /tmp/main.go && cd /tmp && go build -o output main.go && ./output`
-                    ];
-                    envArgs = [];
-                    break;
-                }
-
-                // 🔥 C++ WITH DISABLED BUFFERING
-                case 'cpp': {
-                    filename = 'main.cpp';
-                    dockerImage = "coderunner-multilang";
-                    const outFile = `/app/output_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-                    runArgs = [
-                        '-c',
-                        `g++ /app/${filename} -O2 -o ${outFile} && stdbuf -o0 ${outFile} && rm ${outFile}`
-                    ];
-                    break;
-                }
-
-                // 🔥 C WITH DISABLED BUFFERING
-                case 'c': {
-                    filename = 'main.c';
-                    dockerImage = "coderunner-multilang";
-                    const outFile = `/app/output_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-                    runArgs = [
-                        '-c',
-                        `gcc /app/${filename} -O2 -o ${outFile} && stdbuf -o0 ${outFile} && rm ${outFile}`
-                    ];
-                    break;
-                }
-
-                case 'java': {
-                    // Strip package declarations
-                    code = code.replace(/^\s*package\s+[\w.]+;/gm, '');
-
-                    // Detect class name
-                    const classMatch =
-                        code.match(/public\s+class\s+([A-Za-z_][A-Za-z0-9_]*)/) ||
-                        code.match(/class\s+([A-Za-z_][A-Za-z0-9_]*)/);
-                    const className = classMatch ? classMatch[1] : 'Main';
-
-                    filename = `${className}.java`;
-                    dockerImage = "coderunner-multilang";
-
-                    runArgs = [
-                        '-c',
-                        `javac /app/${filename} && ` +
-                        `stdbuf -o0 java -XX:+UseSerialGC -Xss1m -Xms64m -Xmx128m -cp /app ${className}`
-                    ];
-                    break;
-                }
-
-                default: {
-                    socket.emit('output', 'Unsupported language\n');
-                    return;
-                }
+            // Java Class Name Detection
+            let className = 'Main';
+            if (language && language.toLowerCase() === 'java') {
+                const m = code.match(/public\s+class\s+([A-Za-z_][A-Za-z0-9_]*)/);
+                if (m) className = m[1];
             }
 
-            // Write code file
-            const filePath = path.join(jobDir, filename);
-            fs.writeFileSync(filePath, code);
+            const filename = languageToFilename(language, className);
+            const filePath = path.join(runDir, filename);
 
-            // Docker sandbox args
+            await writeFile(filePath, code, { encoding: 'utf8' });
+
+            let runCmd = '';
+            let runArgs = [];
+            let dockerImage = 'coderunner-multilang'; // Assuming same image for all
+
+            // NOTE: We are running via docker-in-docker or simple docker run. 
+            // The previous code used `spawn('docker', ...)`
+            // We'll mimic the previous logic but with unique paths.
+
+            // Prepare Docker arguments
+            // We need to mount the unique runDir to /app
+
+            let cmdInContainer = '';
+
+            switch ((language || '').toLowerCase()) {
+                case 'python':
+                    cmdInContainer = `python3 -I -u /app/${filename}`;
+                    break;
+                case 'javascript':
+                case 'node':
+                case 'nodejs':
+                    cmdInContainer = `node /app/${filename}`;
+                    break;
+                case 'go':
+                    // Unique output binary name
+                    cmdInContainer = `cp /app/${filename} /tmp/main.go && cd /tmp && go build -o app.out main.go && ./app.out`;
+                    break;
+                case 'cpp':
+                case 'c++':
+                    // Unique binary
+                    cmdInContainer = `g++ /app/${filename} -O2 -o /app/a.out && stdbuf -o0 /app/a.out`;
+                    break;
+                case 'c':
+                    cmdInContainer = `gcc /app/${filename} -O2 -o /app/a.out && stdbuf -o0 /app/a.out`;
+                    break;
+                case 'java':
+                    cmdInContainer = `javac /app/${filename} && stdbuf -o0 java -XX:+UseSerialGC -Xss1m -Xms64m -Xmx128m -cp /app ${className}`;
+                    break;
+                default:
+                    socket.emit('output', 'Unsupported language\n');
+                    return;
+            }
+
             const dockerArgs = [
                 'run',
-                '-i',
+                '-i',             // Interactive for stdin
                 '--rm',
                 '--network', 'none',
                 '--memory', '256m',
                 '--cpus', '2',
-                '--pids-limit', '200',
                 '--ulimit', 'nofile=1024:1024',
-                '--ulimit', 'stack=8388608:8388608',
-                '-v', `${jobDir}:/app`,
-                '-e', 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
-                ...envArgs,
+                '-v', `${runDir}:/app`,
                 dockerImage,
-                runCmd,
-                ...runArgs
+                '/bin/bash', '-c', cmdInContainer
             ];
 
-            child = spawn('docker', dockerArgs, { cwd: __dirname });
+            // We use our raw spawn logic here effectively, but we want to hook up the socket output
+            // The helper runCommand is good for simple async, but here we need streaming to socket.
+            // So we'll use a modified approach or just raw spawn but track it properly.
 
-            // Start inactivity timer as soon as the process is running
-            resetTimer();
+            // Let's use raw spawn to keep streaming simple, but use the unique dir.
+
+            const child = spawn('docker', dockerArgs);
+            activeChild = child;
+
+            let timedOut = false;
+            const timeoutMs = 15000; // 15s timeout
+            const timer = setTimeout(() => {
+                timedOut = true;
+                if (activeChild === child) {
+                    try { child.kill('SIGKILL'); } catch (e) { }
+                    socket.emit('output', '\n[Execution Timeout]');
+                }
+            }, timeoutMs);
+
+            // Input handling
+            socket.on('input', (data) => {
+                if (activeChild === child && child.stdin) {
+                    try { child.stdin.write(data + '\n'); } catch (e) { }
+                }
+            });
 
             child.stdout.on('data', (data) => {
-                resetTimer();   // got output → still alive
                 socket.emit('output', data.toString());
             });
-
             child.stderr.on('data', (data) => {
-                resetTimer();   // got error output → still alive
                 socket.emit('output', data.toString());
             });
 
-            // When program exits
-            child.on('close', () => {
-                try { child.stdin.end(); } catch (e) { }
-                socket.emit('output', '\n[Program exited]');
-                if (inactivityTimer) {
-                    clearTimeout(inactivityTimer);
-                    inactivityTimer = null;
-                }
-                child = null;
-                // clean up
-                if (jobDir && fs.existsSync(jobDir)) {
-                    try {
-                        fs.rmSync(jobDir, { recursive: true, force: true });
-                    } catch (e) { }
+            child.on('close', async () => {
+                clearTimeout(timer);
+                if (activeChild === child) activeChild = null;
+
+                if (!timedOut) socket.emit('output', '\n[Program exited]');
+
+                // Cleanup
+                try {
+                    await rm(runDir, { recursive: true, force: true });
+                } catch (e) {
+                    console.error('cleanup error', e);
                 }
             });
 
             child.on('error', (err) => {
-                if (inactivityTimer) {
-                    clearTimeout(inactivityTimer);
-                    inactivityTimer = null;
-                }
+                clearTimeout(timer);
                 socket.emit('output', `\n[System Error: ${err.message}]`);
             });
-        } catch (err) {
-            socket.emit('output', `\n[Internal Server Error: ${err.message}]`);
-        }
-    });
 
-    socket.on('input', (data) => {
-        if (child && child.stdin) {
-            try {
-                resetTimer();    // user just interacted
-                child.stdin.write(data + '\n');
-            } catch (e) { }
+        } catch (err) {
+            socket.emit('output', `\n[Internal Error: ${err.message}]`);
+            // Cleanup if we failed before spawning
+            if (runDir && fs.existsSync(runDir)) {
+                try { await rm(runDir, { recursive: true, force: true }); } catch (e) { }
+            }
         }
     });
 
     socket.on('disconnect', () => {
-        if (child) {
-            try { child.kill(); } catch (e) { }
-            child = null;
+        if (activeChild) {
+            try { activeChild.kill('SIGKILL'); } catch (e) { }
+            activeChild = null;
         }
-        if (inactivityTimer) {
-            clearTimeout(inactivityTimer);
-            inactivityTimer = null;
-        }
-        if (jobDir && fs.existsSync(jobDir)) {
-            try {
-                fs.rmSync(jobDir, { recursive: true, force: true });
-            } catch (e) { }
+        if (activeRunDir && fs.existsSync(activeRunDir)) {
+            // Attempt async cleanup
+            rm(activeRunDir, { recursive: true, force: true }).catch(() => { });
         }
     });
 };

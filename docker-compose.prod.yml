@@ -28,6 +28,8 @@ services:
       - redis
       - mongo
     restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
