@@ -42,12 +42,14 @@ services:
     command: node src/worker.js
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock # Required for sibling containers (dind alternative)
-      - ./temp:/app/temp # Map temp folder for code files
+      - ./temp_io:/app/temp_io # Map temp folder for code files (HOST PATH MATCHES INTERNAL MOUNT)
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - MONGO_URI=mongodb://mongo:27017/code-compiler
       - NODE_ENV=production
+      - TEMP_DIR_INTERNAL=/app/temp_io
+      - TEMP_DIR_HOST=${PWD}/temp_io
     depends_on:
       - redis
       - mongo

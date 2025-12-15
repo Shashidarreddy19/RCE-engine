@@ -14,13 +14,23 @@ function makeId() {
 }
 
 async function createTempRunDir() {
-    const tempBasePath = path.join(__dirname, '../../temp');
+    // Use configured internal temp dir or default to local development path
+    const tempBasePath = process.env.TEMP_DIR_INTERNAL || path.join(__dirname, '../../temp');
     if (!fs.existsSync(tempBasePath)) {
         fs.mkdirSync(tempBasePath, { recursive: true });
     }
     const base = path.join(tempBasePath, 'rce-');
     const dir = await mkdtemp(base);
     return dir;
+}
+
+// Helper to resolve host path for Docker volume mounting
+function resolveHostPath(internalPath) {
+    if (process.env.TEMP_DIR_INTERNAL && process.env.TEMP_DIR_HOST) {
+        // Replace internal base with host base
+        return internalPath.replace(process.env.TEMP_DIR_INTERNAL, process.env.TEMP_DIR_HOST);
+    }
+    return internalPath; // Fallback for local dev (internal == host)
 }
 
 function languageToFilename(language, classNameFallback = 'Main') {
@@ -166,7 +176,7 @@ module.exports = (socket) => {
                 '--memory', '256m',
                 '--cpus', '2',
                 '--ulimit', 'nofile=1024:1024',
-                '-v', `${runDir}:/app`,
+                '-v', `${resolveHostPath(runDir)}:/app`,
                 dockerImage,
                 '/bin/bash', '-c', cmdInContainer
             ];
