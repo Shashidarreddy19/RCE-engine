@@ -38,6 +38,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.multilang # Uses the heavy image with compilers
+    image: coderunner-multilang:latest # Tag this image so docker run can find it locally
     command: node src/worker.js
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock # Required for sibling containers (dind alternative)
