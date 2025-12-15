@@ -37,7 +37,7 @@ services:
   worker:
     build:
       context: ./backend
-      dockerfile: Dockerfile.multilang # Uses the heavy image with compilers
+      dockerfile: src/Dockerfile.multilang # Uses the heavy image with compilers
     image: coderunner-multilang:latest # Tag this image so docker run can find it locally
     command: node src/worker.js
     volumes:
