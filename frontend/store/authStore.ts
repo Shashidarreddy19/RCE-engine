@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import axios from 'axios';
+// import axios from 'axios';
 
 interface User {
   _id: string;
@@ -19,9 +19,9 @@ interface AuthState {
   initialize: () => Promise<void>;
 }
 
-import { API_URL } from '../src/config';
+import { api } from '../src/config';
 
-const AUTH_URL = `${API_URL}/api/auth`;
+const AUTH_URL = '/auth';
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
@@ -31,7 +31,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   signIn: async (email: string, password: string) => {
     try {
-      const response = await axios.post(`${AUTH_URL}/login`, { email, password });
+      const response = await api.post(`${AUTH_URL}/login`, { email, password });
       const user = response.data;
       localStorage.setItem('token', user.token);
       set({ user });
@@ -43,7 +43,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   signUp: async (email: string, password: string, name: string) => {
     try {
-      const response = await axios.post(`${AUTH_URL}/signup`, { email, password, name });
+      const response = await api.post(`${AUTH_URL}/signup`, { email, password, name });
       const user = response.data;
       localStorage.setItem('token', user.token);
       set({ user });
@@ -64,7 +64,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
     if (token) {
       try {
-        const response = await axios.get(`${AUTH_URL}/me`, {
+        const response = await api.get(`${AUTH_URL}/me`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         set({ user: response.data });

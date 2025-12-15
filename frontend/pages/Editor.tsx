@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import Editor from '@monaco-editor/react';
-import axios from 'axios';
+// import axios from 'axios'; // Removed direct axios usage
 import { io } from 'socket.io-client';
 import {
   Play,
@@ -19,7 +19,7 @@ import { useEditorStore, Language } from '../store/editorStore';
 import { useAuthStore } from '../store/authStore';
 import { useThemeStore } from '../store/themeStore';
 import { Toast } from '../components/Toast';
-import { API_URL } from '../src/config';
+import { api } from '../src/config';
 
 const languageOptions: { value: Language; label: string; extension: string }[] = [
   { value: 'python', label: 'Python', extension: 'py' },
@@ -75,7 +75,7 @@ export function EditorPage() {
 
   // Socket Connection
   useEffect(() => {
-    socketRef.current = io(API_URL);
+    socketRef.current = io();
 
     socketRef.current.on('connect', () => {
       console.log('Connected to execution server');
@@ -207,7 +207,7 @@ export function EditorPage() {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
-      const { data } = await axios.get(`${API_URL}/api/snippets/${snippetId}`, {
+      const { data } = await api.get(`/snippets/${snippetId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setTitle(data.title);
@@ -232,12 +232,12 @@ export function EditorPage() {
       const token = localStorage.getItem('token');
       const snippetData = { title, description, code, language };
       if (currentSnippetId) {
-        await axios.put(`${API_URL}/api/snippets/${currentSnippetId}`, snippetData, {
+        await api.put(`/snippets/${currentSnippetId}`, snippetData, {
           headers: { Authorization: `Bearer ${token}` },
         });
         setToast({ message: 'Snippet updated successfully', type: 'success' });
       } else {
-        const { data } = await axios.post(`${API_URL}/api/snippets`, snippetData, {
+        const { data } = await api.post('/snippets', snippetData, {
           headers: { Authorization: `Bearer ${token}` },
         });
         setCurrentSnippetId(data._id);

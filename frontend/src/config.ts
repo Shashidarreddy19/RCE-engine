@@ -1,1 +1,5 @@
-export const API_URL = import.meta.env.API_URL;
+import axios from 'axios';
+
+export const api = axios.create({
+    baseURL: '/api',
+});
