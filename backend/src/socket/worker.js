@@ -50,6 +50,9 @@ const executeDocker = (language, jobDir, filename, input) => {
                 cmd = `sh -c "python /app/${filename}${inputRedirect}"`;
                 break;
             case 'javascript':
+            case 'node':
+            case 'nodejs':
+            case 'node.js':
                 dockerImage = 'node:18-alpine';
                 cmd = `sh -c "node /app/${filename}${inputRedirect}"`;
                 break;
@@ -174,7 +177,11 @@ const worker = new Worker('job-queue', async (job) => {
         let filename;
         switch (language) {
             case 'python': filename = 'main.py'; break;
-            case 'javascript': filename = 'main.js'; break;
+            case 'javascript':
+            case 'node':
+            case 'nodejs':
+            case 'node.js':
+                filename = 'main.js'; break;
             case 'cpp': filename = 'main.cpp'; break;
             case 'c': filename = 'main.c'; break;
             case 'java': {

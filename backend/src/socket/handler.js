@@ -33,6 +33,7 @@ function languageToFilename(language, classNameFallback = 'Main') {
         case 'go': return 'main.go';
         case 'nodejs':
         case 'node':
+        case 'node.js':
         case 'javascript': return 'main.js';
         default: return 'main.txt';
     }
@@ -134,6 +135,7 @@ module.exports = (socket) => {
                 case 'javascript':
                 case 'node':
                 case 'nodejs':
+                case 'node.js':
                     cmdInContainer = `node /app/${filename}`;
                     break;
                 case 'go':

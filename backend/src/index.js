@@ -1,5 +1,6 @@
 const dotenv = require('dotenv');
-dotenv.config();
+const path = require('path');
+dotenv.config({ path: path.join(__dirname, '../.env') });
 console.log('JWT_SECRET loaded:', process.env.JWT_SECRET ? 'Yes' : 'No');
 
 const express = require('express');
