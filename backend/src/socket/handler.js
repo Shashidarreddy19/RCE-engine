@@ -181,6 +181,12 @@ module.exports = (socket) => {
                 '/bin/bash', '-c', cmdInContainer
             ];
 
+            console.log('DEBUG: TEMP_DIR_INTERNAL:', process.env.TEMP_DIR_INTERNAL);
+            console.log('DEBUG: TEMP_DIR_HOST:', process.env.TEMP_DIR_HOST);
+            console.log('DEBUG: runDir (internal):', runDir);
+            console.log('DEBUG: Resolved Host Path:', resolveHostPath(runDir));
+            console.log('DEBUG: Docker Args:', dockerArgs.join(' '));
+
             // We use our raw spawn logic here effectively, but we want to hook up the socket output
             // The helper runCommand is good for simple async, but here we need streaming to socket.
             // So we'll use a modified approach or just raw spawn but track it properly.
