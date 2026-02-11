@@ -1,0 +1,64 @@
+// userManager.js
+// A simple user management system using Node.js
+
+const fs = require("fs");
+const path = require("path");
+
+const DATA_FILE = path.join(__dirname, "users.json");
+
+// Utility function to read data
+function readData() {
+    if (!fs.existsSync(DATA_FILE)) {
+        fs.writeFileSync(DATA_FILE, JSON.stringify([]));
+    }
+    const data = fs.readFileSync(DATA_FILE);
+    return JSON.parse(data);
+}
+
+// Utility function to write data
+function writeData(data) {
+    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+}
+
+// User class
+class User {
+    constructor(id, name, email) {
+        this.id = id;
+        this.name = name;
+        this.email = email;
+        this.createdAt = new Date().toISOString();
+    }
+}
+
+// User Manager
+class UserManager {
+    constructor() {
+        this.users = readData();
+    }
+
+    addUser(name, email) {
+        const id = this.users.length + 1;
+        const user = new User(id, name, email);
+        this.users.push(user);
+        writeData(this.users);
+        console.log("User added:", user);
+    }
+
+    getAllUsers() {
+        console.log("All Users:");
+        this.users.forEach(u =>
+            console.log(`${u.id}. ${u.name} (${u.email})`)
+        );
+    }
+
+    getUserById(id) {
+        const user = this.users.find(u => u.id === id);
+        if (!user) {
+            console.log("User not found");
+            return;
+        }
+        console.log("User found:", user);
+    }
+
+    deleteUser(id) {
+        const index = this

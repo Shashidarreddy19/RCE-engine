@@ -1,0 +1,12 @@
+node_modules
+npm-debug.log
+temp
+temp_io
+.git
+.gitignore
+.env
+docker-compose.yml
+docker-compose.prod.yml
+Dockerfile
+Dockerfile.multilang
+*.md
