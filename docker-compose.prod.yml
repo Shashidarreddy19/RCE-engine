@@ -25,7 +25,7 @@ services:
       - JWT_SECRET=mysupersecretkey12345
       - NODE_ENV=production
       - TEMP_DIR_INTERNAL=/app/temp_io
-      - TEMP_DIR_HOST=${PWD}/temp_io
+      - TEMP_DIR_HOST=${TEMP_DIR_HOST}
     depends_on:
       - redis
       - mongo
@@ -52,7 +52,7 @@ services:
       - MONGO_URI=mongodb://mongo:27017/code-compiler
       - NODE_ENV=production
       - TEMP_DIR_INTERNAL=/app/temp_io
-      - TEMP_DIR_HOST=${PWD}/temp_io
+      - TEMP_DIR_HOST=${TEMP_DIR_HOST}
     depends_on:
       - redis
       - mongo
